@@ -1,0 +1,10 @@
+{
+  "name": "family-finance-manager",
+  "private": true,
+  "workspaces": ["client", "server"],
+  "scripts": {
+    "dev": "npm run dev -w client",
+    "dev:api": "npm run dev -w server",
+    "build": "npm run build -w client"
+  }
+}

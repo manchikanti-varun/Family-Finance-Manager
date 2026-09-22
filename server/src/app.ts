@@ -1,0 +1,6 @@
+import express from 'express'; import helmet from 'helmet'; import cors from 'cors'; import cookieParser from 'cookie-parser'; import rateLimit from 'express-rate-limit'; import auth from './routes/auth.js'; import transactions from './routes/transactions.js'; import { requireAuth } from './middleware/auth.js';
+export const app=express();
+app.use(helmet()); app.use(cors({origin:process.env.CLIENT_URL,credentials:true})); app.use(express.json({limit:'1mb'})); app.use(cookieParser());
+app.use('/api/auth',rateLimit({windowMs:15*60_000,limit:20,standardHeaders:true,legacyHeaders:false}),auth); app.use('/api/transactions',requireAuth,transactions);
+app.get('/api/health',(_req,res)=>res.json({status:'ok'}));
+app.use((err:any,_req:any,res:any,_next:any)=>{if(err?.name==='ZodError')return res.status(400).json({error:'Invalid request',details:err.issues});if(err?.code===11000)return res.status(409).json({error:'Duplicate request'});console.error(err);res.status(500).json({error:'Unable to process request'})});
