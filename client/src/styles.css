@@ -11,3 +11,7 @@
 .add.danger{background:#fce8ee;color:#c13355}.add.danger:hover{background:#f8d6e0}
 .filter-inline{display:inline-flex;align-items:center;font-size:13px;font-weight:700;color:#403b4a}.filter-inline select{margin-left:4px;height:36px;border:1px solid #ded9e6;border-radius:8px;padding:0 8px;background:#fff}
 .table-row.four{grid-template-columns:110px 1fr 130px 110px}
+/* Sidebar nav uses react-router NavLink (<a>) instead of <button>; mirror the original button styling. */
+.sidebar nav a,.sidebar-bottom>a{height:43px;border-radius:8px;text-align:left;padding:0 12px;display:flex;align-items:center;gap:13px;font-size:14px;width:100%;color:#aaa7b8;text-decoration:none;box-sizing:border-box}
+.sidebar nav a:hover,.sidebar-bottom>a:hover{color:#fff;background:#252332}
+.sidebar nav a.active{background:#8654e9;color:#fff;font-weight:600;box-shadow:0 7px 15px #8654e94d}
