@@ -1,5 +1,60 @@
 import { ClientSession } from 'mongoose'; import { Account } from '../models/Account.js';
 export type Posting = { type:string; amountMinor:number; sourceAccountId?:string; destinationAccountId?:string };
-const validMoney=(n:number)=>{if(!Number.isSafeInteger(n)||n<1)throw new Error('Amount must be positive integer paise')};
-/** Applies only completed events; call in the same Mongo transaction as ledger insert. */
-export async function postTransaction(p:Posting, session:ClientSession){validMoney(p.amountMinor);const get=async(id?:string)=>id?Account.findById(id).session(session):null;const source=await get(p.sourceAccountId),dest=await get(p.destinationAccountId);const from=()=>{if(!source)throw new Error('Source account required');return source};const to=()=>{if(!dest)throw new Error('Destination account required');return dest};const debit=(a:any)=>Account.updateOne({_id:a._id,workspaceId:a.workspaceId,status:'ACTIVE'},{$inc:{currentBalanceMinor:-p.amountMinor}},{session});const credit=(a:any)=>Account.updateOne({_id:a._id,workspaceId:a.workspaceId,status:'ACTIVE'},{$inc:{currentBalanceMinor:p.amountMinor}},{session});const card=(a:any,sign=1)=>Account.updateOne({_id:a._id,workspaceId:a.workspaceId,status:'ACTIVE'},{$inc:{currentOutstandingMinor:sign*p.amountMinor,availableCreditMinor:-sign*p.amountMinor}},{session});switch(p.type){case'EXPENSE':case'UPI_PAYMENT':case'DEBIT_CARD_PAYMENT':case'CASH_EXPENSE':case'FEE':{const a=from();if(a.accountType==='CREDIT_CARD')await card(a);else await debit(a);break}case'CREDIT_CARD_PURCHASE':case'INTEREST':await card(from());break;case'INCOME':case'CASHBACK':await credit(from());break;case'TRANSFER':case'CASH_WITHDRAWAL':await debit(from());await credit(to());break;case'CREDIT_CARD_PAYMENT':{const a=to();if(a.accountType!=='CREDIT_CARD')throw new Error('Destination must be a credit card');await debit(from());await card(a,-1);break}case'REFUND':{const a=from();if(a.accountType==='CREDIT_CARD')await card(a,-1);else await credit(a);break}case'ADJUSTMENT':await credit(from());break;default:throw new Error(`Unsupported posting type: ${p.type}`)}}
+
+// A single balance effect the ledger must apply to one account.
+// balanceDelta -> currentBalanceMinor; outstandingDelta -> currentOutstandingMinor (and inverse availableCredit).
+export type LedgerOp = { accountId:string; balanceDelta?:number; outstandingDelta?:number };
+
+const validMoney=(n:number)=>{ if(!Number.isSafeInteger(n)||n<1) throw new Error('Amount must be positive integer paise'); };
+
+/**
+ * Pure decision function: given a posting and the account types, returns the balance
+ * operations to apply. No DB access, so it is fully unit-testable. `isCreditCard` lets
+ * the caller resolve whether the source/destination account is a credit card.
+ */
+export function computeLedgerOps(p:Posting, isCreditCard:(accountId?:string)=>boolean):LedgerOp[]{
+  validMoney(p.amountMinor);
+  const amt=p.amountMinor;
+  const src=()=>{ if(!p.sourceAccountId) throw new Error('Source account required'); return p.sourceAccountId; };
+  const dst=()=>{ if(!p.destinationAccountId) throw new Error('Destination account required'); return p.destinationAccountId; };
+  switch(p.type){
+    case 'EXPENSE': case 'UPI_PAYMENT': case 'DEBIT_CARD_PAYMENT': case 'CASH_EXPENSE': case 'FEE': {
+      const a=src();
+      return isCreditCard(a) ? [{accountId:a,outstandingDelta:amt}] : [{accountId:a,balanceDelta:-amt}];
+    }
+    case 'CREDIT_CARD_PURCHASE': case 'INTEREST':
+      return [{accountId:src(),outstandingDelta:amt}];
+    case 'INCOME': case 'CASHBACK':
+      return [{accountId:src(),balanceDelta:amt}];
+    case 'TRANSFER': case 'CASH_WITHDRAWAL':
+      return [{accountId:src(),balanceDelta:-amt},{accountId:dst(),balanceDelta:amt}];
+    case 'CREDIT_CARD_PAYMENT': {
+      const to=dst();
+      if(!isCreditCard(to)) throw new Error('Destination must be a credit card');
+      return [{accountId:src(),balanceDelta:-amt},{accountId:to,outstandingDelta:-amt}];
+    }
+    case 'REFUND': {
+      const a=src();
+      return isCreditCard(a) ? [{accountId:a,outstandingDelta:-amt}] : [{accountId:a,balanceDelta:amt}];
+    }
+    case 'ADJUSTMENT':
+      return [{accountId:src(),balanceDelta:amt}];
+    default:
+      throw new Error(`Unsupported posting type: ${p.type}`);
+  }
+}
+
+/** Applies the ledger ops for a posting inside the given Mongo transaction. */
+export async function postTransaction(p:Posting, session:ClientSession){
+  const ids=[p.sourceAccountId,p.destinationAccountId].filter(Boolean) as string[];
+  const accounts=await Account.find({_id:{$in:ids}}).session(session);
+  const typeById=new Map(accounts.map(a=>[String(a._id),a.accountType]));
+  const isCreditCard=(id?:string)=> !!id && typeById.get(id)==='CREDIT_CARD';
+  const ops=computeLedgerOps(p,isCreditCard);
+  for(const op of ops){
+    const inc:Record<string,number>={};
+    if(op.balanceDelta!==undefined) inc.currentBalanceMinor=op.balanceDelta;
+    if(op.outstandingDelta!==undefined){ inc.currentOutstandingMinor=op.outstandingDelta; inc.availableCreditMinor=-op.outstandingDelta; }
+    await Account.updateOne({_id:op.accountId,status:'ACTIVE'},{$inc:inc},{session});
+  }
+}
