@@ -12,6 +12,11 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@types/bcrypt": "latest",
+    "@types/cookie-parser": "latest",
+    "@types/cors": "latest",
+    "@types/express": "latest",
+    "@types/jsonwebtoken": "latest",
     "bcrypt": "latest",
     "cookie-parser": "latest",
     "cors": "latest",
@@ -22,16 +27,11 @@
     "helmet": "latest",
     "jsonwebtoken": "latest",
     "mongoose": "latest",
+    "typescript": "latest",
     "zod": "latest"
   },
   "devDependencies": {
-    "@types/bcrypt": "latest",
-    "@types/cookie-parser": "latest",
-    "@types/cors": "latest",
-    "@types/express": "latest",
-    "@types/jsonwebtoken": "latest",
     "tsx": "latest",
-    "typescript": "latest",
     "vitest": "^5.0.1"
   }
 }
